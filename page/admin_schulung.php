@@ -5,18 +5,16 @@ require_once('../inc/db_helpers.php');
 
 ?>
 <!-- Zeit filtern -->
-<!-- <div class="mb-3 d-flex align-items-center gap-2">
-  <label for="yearFilter" class="form-label fw-bold mb-0">Zeitraum filtern:</label>
-  <select id="yearFilter" class="form-select w-auto" onchange="applySchulungsFilter()">
-    <option value="all">Alle Schulungen</option>
-    <option value="this">Nur dieses Jahr</option>
-    <option value="last">Nur letztes Jahr</option>
-    <option value="both">Dieses & letztes Jahr</option>
-  </select>
-</div> -->
+<div class="mb-3 d-flex align-items-center gap-2">
+  <label for="fromDate" class="form-label fw-bold mb-0">Von:</label>
+  <input type="date" id="fromDate" class="form-control w-auto" />
 
-<input type="checkbox" name="years" id="years" onchange="setupTimeFilter()">
-<label for="years">Nur dieses und letztes Jahr</label>
+  <label for="toDate" class="form-label fw-bold mb-0">Bis:</label>
+  <input type="date" id="toDate" class="form-control w-auto" />
+
+  <button class="btn btn-outline-primary" onclick="applyDateRangeFilter()">Filter anwenden</button>
+</div>
+
 
 <!-- Suchfeld -->
 <input id="txtFilter" type="text" class="form-control mb-3" placeholder="Schulungen filtern..." />

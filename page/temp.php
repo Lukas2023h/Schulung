@@ -2,179 +2,228 @@
 require_once('../inc/functions.php');
 require_once('../inc/db_helpers.php');
 
-$user = getValueFromPostArray('mitarbeiter_kzn', '');
-$isAjax = isset($_POST['isAjax']) && $_POST['isAjax'] == 1;
+$heute = date('Y-m-d');
 
-// Nur Tabellen zurückgeben, wenn AJAX
-if ($isAjax && !empty($user)) {
-  // Tabellenbereich direkt ausgeben, NICHT includen
-?>
-  <h3>Bevorstehende Schulungen</h3>
-  <table class="table table-striped table-hover" id="tabelle_offen" data-paginate>
-    <thead class="table-light">
-      <tr>
-        <th>Name</th>
-        <th>Datum</th>
-        <th>Ort</th> 
-        <th>Leiter</th>
-        <th>Ziel</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php
-      $query = 'SELECT s.ID, s.SchulungsName, s.SchulungsDatum, s.SchulungsOrt, s.SchulungsLeiter, s.SchulungsZiel
-                FROM Schulungen s
-                JOIN SchulungsTeilnahmen st ON s.ID = st.Schulungen_ID
-                JOIN Mitarbeiter m ON st.Mitarbeiter_ID = m.ID
-                WHERE m.MitarbeiterKZN = ?
-                AND s.SchulungsDatum >= CURDATE()
-                GROUP BY s.ID';
+// -------- AJAX: Filter Module --------
+if ($_SERVER["REQUEST_METHOD"] === "POST" && $_POST['ajax'] === 'filter') {
+  $abteilung = $_POST['abteilung'] ?? '';
+  $filter = $_POST['status'] ?? '';
+  $mitarbeitername = $_POST['mitarbeitername'] ?? '';
 
-      $stmt = makeStatement($query, [$user]);
-      if ($stmt->rowCount()) {
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-          echo "<tr><td>{$row['SchulungsName']}</td><td>{$row['SchulungsDatum']}</td><td>{$row['SchulungsOrt']}</td><td>{$row['SchulungsLeiter']}</td><td>{$row['SchulungsZiel']}</td></tr>";
-        }
-      } else {
-        echo "<tr><td colspan='5' class='text-center'>Keine bevorstehenden Schulungen gefunden</td></tr>";
+  $module = makeStatement("SELECT * FROM module ORDER BY ModulName")->fetchAll(PDO::FETCH_ASSOC);
+
+  echo "<div class='row row-cols-1 g-3 modul-list'>";
+
+  foreach ($module as $modul) {
+    $zyklus = (int)$modul['ModulZyklus'];
+
+    // Hole alle relevanten Mitarbeitenden zur Abteilung
+    $sql = "SELECT ID, MitarbeiterVorname, MitarbeiterNachname FROM mitarbeiter WHERE 1=1";
+    $params = [];
+
+    if ($abteilung) {
+      $sql .= " AND MitarbeiterAbteilung = ?";
+      $params[] = $abteilung;
+    }
+
+    $mitarbeiter = makeStatement($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
+
+    $anzeigen = false;
+
+    foreach ($mitarbeiter as $m) {
+      $fullName = $m['MitarbeiterVorname'] . ' ' . $m['MitarbeiterNachname'];
+      if ($mitarbeitername && stripos($fullName, $mitarbeitername) === false) continue;
+
+      $stmtLast = makeStatement("
+        SELECT MAX(s.SchulungsDatum) AS letzte
+        FROM schulungen s
+        JOIN module_has_schulungen mhs ON mhs.Schulungen_ID = s.ID
+        JOIN schulungsteilnahmen st ON st.Schulungen_ID = s.ID
+        WHERE mhs.Module_ID = ? AND st.Mitarbeiter_ID = ?
+      ", [$modul['ID'], $m['ID']]);
+      $letzte = $stmtLast->fetch(PDO::FETCH_ASSOC)['letzte'];
+      $status = !$letzte ? 'nie' : ((strtotime("+$zyklus months", strtotime($letzte)) < time()) ? 'faellig' : 'gueltig');
+
+      if (!$filter || $filter === $status) {
+        $anzeigen = true;
+        break;
       }
-      ?>
-    </tbody>
-  </table>
+    }
 
-  <div id="tabelle_offen-pager"></div>
+    if ($anzeigen) {
+      echo "
+      <div class='col'>
+        <div class='modul-card card shadow-sm border-0' data-modul-id='{$modul['ID']}' style='cursor:pointer;'>
+          <div class='card-body d-flex justify-content-between align-items-center'>
+            <div class='fw-semibold'><i class='bi bi-box'></i> " . htmlspecialchars($modul['ModulName']) . "</div>
+            <div class='text-muted small'>Klicken für Details</div>
+          </div>
+        </div>
+        <div id='modul-detail-{$modul['ID']}' class='modul-detail mt-2' style='display:none;'></div>
+      </div>";
+    }
+  }
 
-  <h3>Abgeschlossene Schulungen</h3>
-  <table class="table table-striped table-hover" id="tabelle_abge" data-paginate>
-    <thead class="table-light">
-      <tr>
-        <th>Name</th>
-        <th>Datum</th>
-        <th>Ort</th>
-        <th>Leiter</th>
-        <th>Ziel</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php
-      $query = 'SELECT s.ID, s.SchulungsName, s.SchulungsDatum, s.SchulungsOrt, s.SchulungsLeiter, s.SchulungsZiel
-                FROM Schulungen s
-                JOIN SchulungsTeilnahmen st ON s.ID = st.Schulungen_ID
-                JOIN Mitarbeiter m ON st.Mitarbeiter_ID = m.ID
-                WHERE m.MitarbeiterKZN = ?
-                AND s.SchulungsDatum < CURDATE()
-                GROUP BY s.ID';
+  echo "</div>";
+  exit;
+}
 
-      $stmt = makeStatement($query, [$user]);
-      if ($stmt->rowCount()) {
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-          echo "<tr><td>{$row['SchulungsName']}</td><td>{$row['SchulungsDatum']}</td><td>{$row['SchulungsOrt']}</td><td>{$row['SchulungsLeiter']}</td><td>{$row['SchulungsZiel']}</td></tr>";
-        }
-      } else {
-        echo "<tr><td colspan='5' class='text-center'>Keine abgeschlossenen Schulungen gefunden</td></tr>";
-      }
-      ?>
-    </tbody>
-  </table>
- 
-  <div id="tabelle_abge-pager"></div>
+// -------- AJAX: Detailansicht Modul --------
+if ($_SERVER["REQUEST_METHOD"] === "POST" && $_POST['ajax'] === 'detail') {
+  $modul_id = $_POST['modul_id'];
+  $abteilung = $_POST['abteilung'] ?? '';
+  $filter = $_POST['status'] ?? '';
+  $mitarbeitername = $_POST['mitarbeitername'] ?? '';
 
-  <h3>Überfällige Module</h3>
-  <table class="table table-striped table-hover" id="tabelle_modul" data-paginate>
-    <thead class="table-light">
-      <tr>
-        <th>Modul</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php
-      $stmtModule = makeStatement("SELECT ID, ModulName, ModulZyklus FROM module");
-      $module = $stmtModule->fetchAll(PDO::FETCH_ASSOC);
+  $zyklus = makeStatement("SELECT ModulZyklus FROM module WHERE ID = ?", [$modul_id])->fetchColumn();
 
-      $stmtMID = makeStatement("SELECT ID FROM mitarbeiter WHERE MitarbeiterKZN = ?", [$user]);
-      $row = $stmtMID->fetch(PDO::FETCH_ASSOC);
+  $sql = "SELECT ID, MitarbeiterVorname, MitarbeiterNachname FROM mitarbeiter WHERE 1=1";
+  $params = [];
 
-      if ($row) {
-        $mitarbeiterID = $row['ID'];
-        foreach ($module as $modul) {
-          $stmtLast = makeStatement("
-            SELECT MAX(s.SchulungsDatum) AS letzte
-            FROM schulungen s
-            JOIN module_has_schulungen mhs ON mhs.Schulungen_ID = s.ID
-            JOIN schulungsteilnahmen st ON st.Schulungen_ID = s.ID
-            WHERE mhs.Module_ID = ? AND st.Mitarbeiter_ID = ?
-          ", [$modul['ID'], $mitarbeiterID]);
+  if ($abteilung) {
+    $sql .= " AND MitarbeiterAbteilung = ?";
+    $params[] = $abteilung;
+  }
 
-          $last = $stmtLast->fetch(PDO::FETCH_ASSOC)['letzte'];
-          $status = !$last ? "Nie geschult" : (
-            strtotime("+{$modul['ModulZyklus']} months", strtotime($last)) < time()
-            ? "Überfällig (letzte am $last)" : "Gültig (letzte am $last)"
-          );
+  $mitarbeiter = makeStatement($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
 
-          if (!$last || strtotime("+{$modul['ModulZyklus']} months", strtotime($last)) < time()) {
-            echo "<tr><td>{$modul['ModulName']}</td><td>{$status}</td></tr>";
-          }
-        }
-      } else {
-        echo "<tr><td colspan='2' class='text-center'>Keine fälligen Module gefunden</td></tr>";
-      }
-      ?>
-    </tbody>
-  </table>
+  echo "<div class='card border-start border-info border-3 mb-3'><div class='card-body p-3'><ul class='list-group list-group-flush'>";
+  $gefunden = 0;
 
-  <div id="tabelle_modul-pager"></div>
-<?php
+  foreach ($mitarbeiter as $m) {
+    $fullName = $m['MitarbeiterVorname'] . ' ' . $m['MitarbeiterNachname'];
+    if ($mitarbeitername && stripos($fullName, $mitarbeitername) === false) continue;
+
+    $stmtLast = makeStatement("
+      SELECT MAX(s.SchulungsDatum) AS letzte
+      FROM schulungen s
+      JOIN module_has_schulungen mhs ON mhs.Schulungen_ID = s.ID
+      JOIN schulungsteilnahmen st ON st.Schulungen_ID = s.ID
+      WHERE mhs.Module_ID = ? AND st.Mitarbeiter_ID = ?
+    ", [$modul_id, $m['ID']]);
+    $letzte = $stmtLast->fetch(PDO::FETCH_ASSOC)['letzte'];
+    $status = !$letzte ? 'nie' : ((strtotime("+$zyklus months", strtotime($letzte)) < time()) ? 'faellig' : 'gueltig');
+
+    if (!$filter || $filter === $status) {
+      $text = match ($status) {
+        'nie' => '<em>Nie geschult</em>',
+        'faellig' => "Überfällig: <strong>$letzte</strong>",
+        'gueltig' => "Letzte Schulung: <strong>$letzte</strong>"
+      };
+
+      echo "
+        <li class='list-group-item d-flex justify-content-between align-items-start'>
+          <div class='ms-2 me-auto'>
+            <div class='fw-bold'>{$m['MitarbeiterVorname']} {$m['MitarbeiterNachname']}</div>
+            <small class='text-muted'>$text</small>
+          </div>
+        </li>";
+      $gefunden++;
+    }
+  }
+
+  if (!$gefunden) {
+    echo "<p class='text-muted mb-0'>Keine passenden Mitarbeitenden gefunden.</p>";
+  }
+
+  echo "</ul></div></div>";
+  exit;
+}
+
+// -------- Modul speichern (POST) --------
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['ModulName'])) {
+  makeStatement("INSERT INTO module (ModulName, ModulAbteilung, ModulZyklus, ModulGeschaeft) VALUES (?, ?, ?, ?)", [
+    getValueFromPostArray('ModulName'),
+    getValueFromPostArray('ModulAbteilung'),
+    (int)getValueFromPostArray('ModulZyklus', 12),
+    getValueFromPostArray('ModulGeschaeft')
+  ]);
+  header("Location: admin_modulstatus.php");
   exit;
 }
 ?>
 
-<!-- Normale Seite (mit Formular und Container) -->
-<h3>Mitarbeiter Auswahl:</h3>
-<form id="userForm" method="post" class="d-flex gap-2">
-  <div class="w-70">
-    <select name="mitarbeiter_kzn" class="form-select" required id="mitarbeiterSelect">
-      <option value="">-- Bitte wählen --</option>
-      <?php
-      $query = "SELECT * FROM mitarbeiter ORDER BY MitarbeiterNachname ASC";
-      $stmt = makeStatement($query);
-      while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $selected = ($user === $row['MitarbeiterKZN']) ? 'selected' : '';
-        echo "<option value='" . $row['MitarbeiterKZN'] . "' $selected>" .
-          $row['MitarbeiterVorname'] . " " . $row['MitarbeiterNachname'] . " (" . $row['MitarbeiterKZN'] . ")" .
-          "</option>";
-      }
-      ?>
+<!-- ---------- HTML ---------- -->
+<h3 class="mb-3">Modul erstellen</h3>
+<form method="POST" class="row g-3 mb-4">
+  <div class="col-md-4"><input type="text" name="ModulName" class="form-control" placeholder="Modulname" required></div>
+  <div class="col-md-2"><input type="text" name="ModulAbteilung" class="form-control" placeholder="Abteilung" required></div>
+  <div class="col-md-3"><input type="text" name="ModulGeschaeft" class="form-control" placeholder="Geschäftsbereich" required></div>
+  <div class="col-md-2">
+    <select name="ModulZyklus" class="form-select">
+      <option value="6">6 Monate</option>
+      <option value="12" selected>1 Jahr</option>
+      <option value="24">2 Jahre</option>
     </select>
   </div>
+  <div class="col-md-1"><button type="submit" class="btn btn-success w-100">+</button></div>
 </form>
 
-<div id="schulungsContainer">
-  <?php if (!empty($user)) {
-    $_POST['isAjax'] = 1;
-    include(__FILE__);
-  } ?>
-</div>
+<h3 class="mb-3">Filter</h3>
+<form id="filterForm" class="d-flex flex-wrap gap-2 mb-4">
+  <select class="form-select w-auto" id="filterAbteilung">
+    <option value="">-- Abteilung --</option>
+    <?php
+    $stmt = makeStatement("SELECT DISTINCT MitarbeiterAbteilung FROM mitarbeiter ORDER BY MitarbeiterAbteilung");
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      echo "<option value='{$row['MitarbeiterAbteilung']}'>{$row['MitarbeiterAbteilung']}</option>";
+    }
+    ?>
+  </select>
+
+  <select class="form-select w-auto" id="filterStatus">
+    <option value="">-- Status --</option>
+    <option value="nie">Nie geschult</option>
+    <option value="faellig">Fällig</option>
+    <option value="gueltig">Gültig</option>
+  </select>
+
+  <input type="text" class="form-control w-auto" id="filterMitarbeiter" placeholder="Mitarbeitername">
+</form>
+
+<div id="modulCardContainer"></div>
 
 <script>
-  $(document).ready(function() {
-    $('#mitarbeiterSelect').on('change', function() {
-      const kzn = $(this).val();
-      if (!kzn) return;
+  $(function() {
+    function ladeModule() {
+      $.post('admin_modulstatus.php', {
+        ajax: 'filter',
+        abteilung: $('#filterAbteilung').val(),
+        status: $('#filterStatus').val(),
+        mitarbeitername: $('#filterMitarbeiter').val()
+      }, function(html) {
+        $('#modulCardContainer').html(html);
+      });
+    }
 
-      $.post('page/admin_user.php', {
-        mitarbeiter_kzn: kzn,
-        isAjax: 1
+    $('#filterForm select, #filterForm input').on('change keyup', ladeModule);
+
+    $('#modulCardContainer').on('click', '.modul-card', function() {
+      const modulId = $(this).data('modul-id');
+      const abteilung = $('#filterAbteilung').val();
+      const status = $('#filterStatus').val();
+      const mitarbeitername = $('#filterMitarbeiter').val();
+
+      const detailRow = $('#modul-detail-' + modulId);
+      const isVisible = detailRow.is(':visible');
+
+      $('.modul-card').removeClass('border-primary');
+      $('.modul-detail').slideUp().html('');
+
+      if (isVisible) return;
+
+      $(this).addClass('border-primary');
+      $.post('admin_modulstatus.php', {
+        ajax: 'detail',
+        modul_id: modulId,
+        abteilung: abteilung,
+        status: status,
+        mitarbeitername: mitarbeitername
       }, function(data) {
-        $('#schulungsContainer').html(data);
-        if (typeof paginateTable === "function") {
-          document.querySelectorAll("table[data-paginate]").forEach(table => {
-            paginateTable(table.id);
-          });
-        }
-      }).fail(function() {
-        $('#schulungsContainer').html('<div class="alert alert-danger">Fehler beim Laden.</div>');
+        detailRow.html(data).slideDown();
       });
     });
+
+    ladeModule(); // Initial laden
   });
 </script>

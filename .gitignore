@@ -1,0 +1,7 @@
+#Umgebungsvariablen
+.env
+
+/vendor/
+
+.vscode/
+

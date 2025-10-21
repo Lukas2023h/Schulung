@@ -226,7 +226,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $_POST['ajax'] === 'detail') {
         mitarbeitername: mitarbeitername
       }, function(data) {
         detailRow.html(data).slideDown(() => {
-          // Kleine Verzögerung für DOM-Update
           setTimeout(() => {
             detailRow.find("table[data-paginate]").each(function() {
               if (this.id && $(this).find('tbody tr').length > 0) {
